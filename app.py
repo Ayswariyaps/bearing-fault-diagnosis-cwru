@@ -106,12 +106,49 @@ except Exception as e:
 
 
 # -----------------------------
-# GAN DEMO
+# GAN + PREDICTION DEMO
 # -----------------------------
-st.subheader("Generate Fault Pattern (GAN)")
+st.subheader("Generate & Analyze Fault Pattern")
 
 if st.button("Generate Sample"):
+
+    # Generate spectrogram using GAN
     noise = np.random.normal(0,1,(1,64))
     fake = gen.predict(noise)
 
-    st.image(fake[0], clamp=True, caption="Generated Spectrogram")
+    # Fix visualization
+    img = fake[0].squeeze()
+    img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+
+    # Show image
+    st.image(img, caption="Generated Spectrogram", use_column_width=True)
+
+    # -----------------------------
+    # AE RECONSTRUCTION
+    # -----------------------------
+    input_img = img.reshape(1,128,128,1)
+
+    recon = ae.predict(input_img)
+    recon_img = recon[0].squeeze()
+
+    # Normalize reconstruction
+    recon_img = (recon_img - recon_img.min()) / (recon_img.max() - recon_img.min() + 1e-8)
+
+    st.image(recon_img, caption="Reconstructed (AE)", use_column_width=True)
+
+    # -----------------------------
+    # ERROR CALCULATION
+    # -----------------------------
+    mse = np.mean((input_img - recon)**2)
+
+    st.write("Reconstruction Error (MSE):", float(mse))
+
+    # -----------------------------
+    # PREDICTION LOGIC
+    # -----------------------------
+    THRESHOLD = 0.02   # you can tune this
+
+    if mse > THRESHOLD:
+        st.error("Fault Detected")
+    else:
+        st.success("Normal Bearing")
