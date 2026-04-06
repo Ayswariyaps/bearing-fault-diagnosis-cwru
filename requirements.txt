@@ -1,0 +1,7 @@
+streamlit
+tensorflow
+numpy
+matplotlib
+scipy
+scikit-learn
+gdown
