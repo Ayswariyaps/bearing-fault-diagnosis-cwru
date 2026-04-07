@@ -13,6 +13,11 @@ st.set_page_config(page_title="Fault Detection", layout="wide")
 st.title("🔧 Bearing Fault Detection (AE + GAN)")
 
 # -----------------------------
+# USER-ADJUSTABLE THRESHOLD 🔥
+# -----------------------------
+THRESHOLD = st.sidebar.slider("Set Fault Threshold", 0.001, 0.2, 0.05, 0.001)
+
+# -----------------------------
 # AE MODEL
 # -----------------------------
 def build_ae_model():
@@ -68,15 +73,13 @@ def load_models():
     if not os.path.exists("ae.weights.h5"):
         gdown.download(
             "https://drive.google.com/uc?id=1tenPFjaQiNdeDb5qcqsxFJ-dXxTR8NRK",
-            "ae.weights.h5",
-            quiet=False
+            "ae.weights.h5"
         )
 
     if not os.path.exists("gan.weights.h5"):
         gdown.download(
             "https://drive.google.com/uc?id=1cU9cqVOfVMEt_MhpvOm-zAdr_fxbPAeZ",
-            "gan.weights.h5",
-            quiet=False
+            "gan.weights.h5"
         )
 
     ae = build_ae_model()
@@ -99,37 +102,30 @@ option = st.sidebar.radio("Select Option", [
 ])
 
 # -----------------------------
-# MAT → SPECTROGRAM (FIXED)
+# MAT → SPECTROGRAM
 # -----------------------------
 def mat_to_spectrogram(file):
 
     mat = scipy.io.loadmat(file)
 
-    # Remove metadata keys
     keys = [k for k in mat.keys() if not k.startswith('__')]
 
     if len(keys) == 0:
-        raise Exception("No usable signal found in .mat file")
+        raise Exception("No usable signal found")
 
-    # Auto select signal
     signal = mat[keys[0]].squeeze()
 
     st.write(f"Detected Signal Key: {keys[0]}")
 
-    # Generate spectrogram
     fig, ax = plt.subplots()
     ax.specgram(signal, Fs=12000)
     ax.axis('off')
 
     fig.canvas.draw()
 
-    # ✅ FIXED (no tostring_rgb error)
-    img = np.asarray(fig.canvas.buffer_rgba())
-    img = img[:, :, :3]
-
+    img = np.asarray(fig.canvas.buffer_rgba())[:, :, :3]
     plt.close(fig)
 
-    # Preprocess
     img = tf.image.rgb_to_grayscale(img)
     img = tf.image.resize(img, (128,128))
     img = img.numpy() / 255.0
@@ -149,15 +145,19 @@ if option == "Upload .mat & Detect Fault":
         try:
             img = mat_to_spectrogram(uploaded)
 
-            st.image(img, caption="Generated Spectrogram")
+            st.image(img, caption="Spectrogram")
 
-            # AE Reconstruction
             recon = ae.predict(img[np.newaxis,...])
             mse = np.mean((img - recon[0])**2)
 
-            st.subheader(f"Reconstruction Error: {mse:.6f}")
+            # 🔥 SHOW MSE
+            st.subheader(f"Reconstruction Error (MSE): {mse:.6f}")
 
-            if mse < 0.01:
+            # 🔥 VISUAL FEEDBACK BAR
+            st.progress(min(mse / THRESHOLD, 1.0))
+
+            # 🔥 DECISION
+            if mse < THRESHOLD:
                 st.success("✅ Normal Condition")
             else:
                 st.error("⚠️ Fault Detected")
@@ -177,7 +177,6 @@ elif option == "Generate Fault (GAN)":
         noise = np.random.normal(0,1,(1,64))
         fake = gen.predict(noise)
 
-        # Fix gray output
         img = fake[0].squeeze()
         img = (img - img.min()) / (img.max() - img.min() + 1e-8)
 
