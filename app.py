@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Fault Detection", layout="wide")
 
-st.title("🔧 AE + GAN Fault Detection")
+st.title("🔧 Bearing Fault Detection (AE + GAN)")
 
 # -----------------------------
 # AE MODEL
@@ -37,7 +37,7 @@ def build_ae_model():
     return Model(inputs, outputs)
 
 # -----------------------------
-# GENERATOR
+# GAN GENERATOR
 # -----------------------------
 def build_generator():
     model = Sequential()
@@ -66,10 +66,18 @@ def build_generator():
 def load_models():
 
     if not os.path.exists("ae.weights.h5"):
-        gdown.download("https://drive.google.com/uc?id=1tenPFjaQiNdeDb5qcqsxFJ-dXxTR8NRK", "ae.weights.h5")
+        gdown.download(
+            "https://drive.google.com/uc?id=1tenPFjaQiNdeDb5qcqsxFJ-dXxTR8NRK",
+            "ae.weights.h5",
+            quiet=False
+        )
 
     if not os.path.exists("gan.weights.h5"):
-        gdown.download("https://drive.google.com/uc?id=1cU9cqVOfVMEt_MhpvOm-zAdr_fxbPAeZ", "gan.weights.h5")
+        gdown.download(
+            "https://drive.google.com/uc?id=1cU9cqVOfVMEt_MhpvOm-zAdr_fxbPAeZ",
+            "gan.weights.h5",
+            quiet=False
+        )
 
     ae = build_ae_model()
     gen = build_generator()
@@ -80,46 +88,46 @@ def load_models():
     return ae, gen
 
 ae, gen = load_models()
-
-st.success("Models Loaded")
+st.success("✅ Models Loaded")
 
 # -----------------------------
 # SIDEBAR
 # -----------------------------
-option = st.sidebar.radio("Select", [
-    "Upload .mat & Predict",
+option = st.sidebar.radio("Select Option", [
+    "Upload .mat & Detect Fault",
     "Generate Fault (GAN)"
 ])
 
 # -----------------------------
-# FUNCTION: MAT → SPECTROGRAM
+# MAT → SPECTROGRAM (ROBUST)
 # -----------------------------
 def mat_to_spectrogram(file):
 
     mat = scipy.io.loadmat(file)
 
-    # try keys
-    if 'X' in mat:
-        signal = mat['X'].squeeze()
-    elif 'signal' in mat:
-        signal = mat['signal'].squeeze()
-    else:
-        raise Exception("Signal not found in .mat file")
+    # Get valid keys (remove metadata)
+    keys = [k for k in mat.keys() if not k.startswith('__')]
+
+    if len(keys) == 0:
+        raise Exception("No usable signal found in .mat file")
+
+    # Auto select first signal
+    signal = mat[keys[0]].squeeze()
+
+    st.write(f"Detected Signal Key: {keys[0]}")
 
     # Generate spectrogram
     fig, ax = plt.subplots()
-    ax.specgram(signal, Fs=12000)   # adjust Fs if needed
+    ax.specgram(signal, Fs=12000)
     ax.axis('off')
 
     fig.canvas.draw()
 
-    # Convert to array
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-
     plt.close(fig)
 
-    # Convert to grayscale
+    # Convert to grayscale + resize
     img = tf.image.rgb_to_grayscale(img)
     img = tf.image.resize(img, (128,128))
     img = img.numpy() / 255.0
@@ -127,16 +135,15 @@ def mat_to_spectrogram(file):
     return img
 
 # -----------------------------
-# 1. MAT UPLOAD + PREDICTION
+# 1. UPLOAD + DETECT
 # -----------------------------
-if option == "Upload .mat & Predict":
+if option == "Upload .mat & Detect Fault":
 
-    st.header("📂 Upload .mat File")
+    st.header("📂 Upload MATLAB File")
 
-    uploaded = st.file_uploader("Upload MATLAB file", type=["mat"])
+    uploaded = st.file_uploader("Upload .mat file", type=["mat"])
 
     if uploaded:
-
         try:
             img = mat_to_spectrogram(uploaded)
 
@@ -148,9 +155,8 @@ if option == "Upload .mat & Predict":
 
             st.subheader(f"Reconstruction Error: {mse:.6f}")
 
-            # Simple threshold
             if mse < 0.01:
-                st.success("✅ Normal")
+                st.success("✅ Normal Condition")
             else:
                 st.error("⚠️ Fault Detected")
 
@@ -158,17 +164,18 @@ if option == "Upload .mat & Predict":
             st.error(str(e))
 
 # -----------------------------
-# 2. GAN GENERATION
+# 2. GAN GENERATION (FIXED)
 # -----------------------------
 elif option == "Generate Fault (GAN)":
 
-    st.header("🎲 Generate Fault")
+    st.header("🎲 Generate Fault Pattern")
 
     if st.button("Generate"):
 
         noise = np.random.normal(0,1,(1,64))
         fake = gen.predict(noise)
 
+        # Fix gray issue
         img = fake[0].squeeze()
         img = (img - img.min()) / (img.max() - img.min() + 1e-8)
 
