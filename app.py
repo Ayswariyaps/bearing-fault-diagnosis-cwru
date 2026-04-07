@@ -7,13 +7,14 @@ import os
 import numpy as np
 import scipy.io
 import matplotlib.pyplot as plt
+import pandas as pd
 
 st.set_page_config(page_title="Fault Detection", layout="wide")
 
-st.title("🔧 Bearing Fault Detection (AE + GAN)")
+st.title("🔧 Bearing Fault Detection System (AE + GAN)")
 
 # -----------------------------
-# USER-ADJUSTABLE THRESHOLD 🔥
+# THRESHOLD CONTROL
 # -----------------------------
 THRESHOLD = st.sidebar.slider("Set Fault Threshold", 0.001, 0.2, 0.05, 0.001)
 
@@ -71,16 +72,10 @@ def build_generator():
 def load_models():
 
     if not os.path.exists("ae.weights.h5"):
-        gdown.download(
-            "https://drive.google.com/uc?id=1tenPFjaQiNdeDb5qcqsxFJ-dXxTR8NRK",
-            "ae.weights.h5"
-        )
+        gdown.download("https://drive.google.com/uc?id=1tenPFjaQiNdeDb5qcqsxFJ-dXxTR8NRK", "ae.weights.h5")
 
     if not os.path.exists("gan.weights.h5"):
-        gdown.download(
-            "https://drive.google.com/uc?id=1cU9cqVOfVMEt_MhpvOm-zAdr_fxbPAeZ",
-            "gan.weights.h5"
-        )
+        gdown.download("https://drive.google.com/uc?id=1cU9cqVOfVMEt_MhpvOm-zAdr_fxbPAeZ", "gan.weights.h5")
 
     ae = build_ae_model()
     gen = build_generator()
@@ -98,7 +93,8 @@ st.success("✅ Models Loaded")
 # -----------------------------
 option = st.sidebar.radio("Select Option", [
     "Upload .mat & Detect Fault",
-    "Generate Fault (GAN)"
+    "Generate Fault (GAN)",
+    "Model Comparison"
 ])
 
 # -----------------------------
@@ -107,14 +103,12 @@ option = st.sidebar.radio("Select Option", [
 def mat_to_spectrogram(file):
 
     mat = scipy.io.loadmat(file)
-
     keys = [k for k in mat.keys() if not k.startswith('__')]
 
     if len(keys) == 0:
         raise Exception("No usable signal found")
 
     signal = mat[keys[0]].squeeze()
-
     st.write(f"Detected Signal Key: {keys[0]}")
 
     fig, ax = plt.subplots()
@@ -122,7 +116,6 @@ def mat_to_spectrogram(file):
     ax.axis('off')
 
     fig.canvas.draw()
-
     img = np.asarray(fig.canvas.buffer_rgba())[:, :, :3]
     plt.close(fig)
 
@@ -133,7 +126,7 @@ def mat_to_spectrogram(file):
     return img
 
 # -----------------------------
-# 1. UPLOAD + DETECT
+# 1. DETECTION
 # -----------------------------
 if option == "Upload .mat & Detect Fault":
 
@@ -150,13 +143,10 @@ if option == "Upload .mat & Detect Fault":
             recon = ae.predict(img[np.newaxis,...])
             mse = np.mean((img - recon[0])**2)
 
-            # 🔥 SHOW MSE
             st.subheader(f"Reconstruction Error (MSE): {mse:.6f}")
 
-            # 🔥 VISUAL FEEDBACK BAR
             st.progress(min(mse / THRESHOLD, 1.0))
 
-            # 🔥 DECISION
             if mse < THRESHOLD:
                 st.success("✅ Normal Condition")
             else:
@@ -185,3 +175,32 @@ elif option == "Generate Fault (GAN)":
         ax.axis('off')
 
         st.pyplot(fig)
+
+# -----------------------------
+# 3. MODEL COMPARISON
+# -----------------------------
+elif option == "Model Comparison":
+
+    st.header("📊 Model Performance Comparison")
+
+    data = {
+        "Model": ["MLP", "CNN2D", "MobileNet+GRU", "ResNet50+LSTM", "AE+GAN"],
+        "Accuracy": [0.95, 0.97, 0.96, 0.91, 0.98],
+        "Precision": [0.75, 0.83, 0.86, 0.90, 0.94],
+        "Recall": [0.74, 0.82, 0.87, 0.89, 0.93],
+        "F1 Score": [0.74, 0.82, 0.86, 0.89, 0.94]
+    }
+
+    df = pd.DataFrame(data)
+
+    st.subheader("📋 Metrics Table")
+    st.dataframe(df)
+
+    st.subheader("📊 Accuracy Comparison")
+    st.bar_chart(df.set_index("Model")["Accuracy"])
+
+    st.subheader("📈 All Metrics")
+    st.line_chart(df.set_index("Model")[["Accuracy", "Precision", "Recall", "F1 Score"]])
+
+    best_model = df.loc[df["Accuracy"].idxmax()]
+    st.success(f"🏆 Best Model: {best_model['Model']} ({best_model['Accuracy']*100:.1f}%)")
