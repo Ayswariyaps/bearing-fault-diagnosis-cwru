@@ -99,19 +99,19 @@ option = st.sidebar.radio("Select Option", [
 ])
 
 # -----------------------------
-# MAT → SPECTROGRAM (ROBUST)
+# MAT → SPECTROGRAM (FIXED)
 # -----------------------------
 def mat_to_spectrogram(file):
 
     mat = scipy.io.loadmat(file)
 
-    # Get valid keys (remove metadata)
+    # Remove metadata keys
     keys = [k for k in mat.keys() if not k.startswith('__')]
 
     if len(keys) == 0:
         raise Exception("No usable signal found in .mat file")
 
-    # Auto select first signal
+    # Auto select signal
     signal = mat[keys[0]].squeeze()
 
     st.write(f"Detected Signal Key: {keys[0]}")
@@ -123,11 +123,13 @@ def mat_to_spectrogram(file):
 
     fig.canvas.draw()
 
-    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    # ✅ FIXED (no tostring_rgb error)
+    img = np.asarray(fig.canvas.buffer_rgba())
+    img = img[:, :, :3]
+
     plt.close(fig)
 
-    # Convert to grayscale + resize
+    # Preprocess
     img = tf.image.rgb_to_grayscale(img)
     img = tf.image.resize(img, (128,128))
     img = img.numpy() / 255.0
@@ -164,7 +166,7 @@ if option == "Upload .mat & Detect Fault":
             st.error(str(e))
 
 # -----------------------------
-# 2. GAN GENERATION (FIXED)
+# 2. GAN GENERATION
 # -----------------------------
 elif option == "Generate Fault (GAN)":
 
@@ -175,7 +177,7 @@ elif option == "Generate Fault (GAN)":
         noise = np.random.normal(0,1,(1,64))
         fake = gen.predict(noise)
 
-        # Fix gray issue
+        # Fix gray output
         img = fake[0].squeeze()
         img = (img - img.min()) / (img.max() - img.min() + 1e-8)
 
