@@ -3,14 +3,14 @@ import gdown
 import tensorflow as tf
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model, Sequential
-from tensorflow.keras.optimizers import Adam
 import os
 import numpy as np
-import pandas as pd
+import scipy.io
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="AE+GAN Fault Detection", layout="wide")
+st.set_page_config(page_title="Fault Detection", layout="wide")
 
-st.title("🔧 AE + GAN Fault Detection System")
+st.title("🔧 AE + GAN Fault Detection")
 
 # -----------------------------
 # AE MODEL
@@ -66,18 +66,10 @@ def build_generator():
 def load_models():
 
     if not os.path.exists("ae.weights.h5"):
-        gdown.download(
-            "https://drive.google.com/uc?id=1tenPFjaQiNdeDb5qcqsxFJ-dXxTR8NRK",
-            "ae.weights.h5",
-            quiet=False
-        )
+        gdown.download("YOUR_AE_LINK", "ae.weights.h5")
 
     if not os.path.exists("gan.weights.h5"):
-        gdown.download(
-            "https://drive.google.com/uc?id=1cU9cqVOfVMEt_MhpvOm-zAdr_fxbPAeZ",
-            "gan.weights.h5",
-            quiet=False
-        )
+        gdown.download("YOUR_GAN_LINK", "gan.weights.h5")
 
     ae = build_ae_model()
     gen = build_generator()
@@ -87,120 +79,101 @@ def load_models():
 
     return ae, gen
 
-# -----------------------------
-# LOAD
-# -----------------------------
-try:
-    ae, gen = load_models()
-    st.success("✅ Models loaded successfully")
-except Exception as e:
-    st.error(f"Error: {e}")
-    st.stop()
+ae, gen = load_models()
+
+st.success("Models Loaded")
 
 # -----------------------------
 # SIDEBAR
 # -----------------------------
-st.sidebar.title("Navigation")
-option = st.sidebar.radio("Go to", [
-    "Upload & Detect",
-    "Generate Fault (GAN)",
-    "Model Comparison",
-    "About Model"
+option = st.sidebar.radio("Select", [
+    "Upload .mat & Predict",
+    "Generate Fault (GAN)"
 ])
 
 # -----------------------------
-# 1. PREPROCESS + AE DETECTION
+# FUNCTION: MAT → SPECTROGRAM
 # -----------------------------
-if option == "Upload & Detect":
+def mat_to_spectrogram(file):
 
-    st.header("📤 Upload Spectrogram")
+    mat = scipy.io.loadmat(file)
 
-    uploaded = st.file_uploader("Upload Image", type=["png","jpg","jpeg"])
+    # try keys
+    if 'X' in mat:
+        signal = mat['X'].squeeze()
+    elif 'signal' in mat:
+        signal = mat['signal'].squeeze()
+    else:
+        raise Exception("Signal not found in .mat file")
+
+    # Generate spectrogram
+    fig, ax = plt.subplots()
+    ax.specgram(signal, Fs=12000)   # adjust Fs if needed
+    ax.axis('off')
+
+    fig.canvas.draw()
+
+    # Convert to array
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    plt.close(fig)
+
+    # Convert to grayscale
+    img = tf.image.rgb_to_grayscale(img)
+    img = tf.image.resize(img, (128,128))
+    img = img.numpy() / 255.0
+
+    return img
+
+# -----------------------------
+# 1. MAT UPLOAD + PREDICTION
+# -----------------------------
+if option == "Upload .mat & Predict":
+
+    st.header("📂 Upload .mat File")
+
+    uploaded = st.file_uploader("Upload MATLAB file", type=["mat"])
 
     if uploaded:
-        img = tf.keras.preprocessing.image.load_img(
-            uploaded, target_size=(128,128), color_mode='grayscale'
-        )
-        img = tf.keras.preprocessing.image.img_to_array(img) / 255.0
 
-        st.image(img, caption="Input Image")
+        try:
+            img = mat_to_spectrogram(uploaded)
 
-        recon = ae.predict(img[np.newaxis,...])
-        mse = np.mean((img - recon[0])**2)
+            st.image(img, caption="Generated Spectrogram")
 
-        st.image(recon[0], caption="Reconstructed Image")
+            # AE Reconstruction
+            recon = ae.predict(img[np.newaxis,...])
+            mse = np.mean((img - recon[0])**2)
 
-        st.subheader(f"📊 Reconstruction Error (MSE): {mse:.6f}")
+            st.subheader(f"Reconstruction Error: {mse:.6f}")
 
-        if mse < 0.01:
-            st.success("✅ Normal Condition")
-        else:
-            st.error("⚠️ Fault Detected")
+            # Simple threshold
+            if mse < 0.01:
+                st.success("✅ Normal")
+            else:
+                st.error("⚠️ Fault Detected")
+
+        except Exception as e:
+            st.error(str(e))
 
 # -----------------------------
 # 2. GAN GENERATION
 # -----------------------------
 elif option == "Generate Fault (GAN)":
 
-    st.header("🎲 Generate Fault Pattern")
+    st.header("🎲 Generate Fault")
 
-    if st.button("Generate Sample"):
+    if st.button("Generate"):
+
         noise = np.random.normal(0,1,(1,64))
         fake = gen.predict(noise)
 
-        st.image(fake[0], clamp=True, caption="Generated Spectrogram")
+        img = fake[0].squeeze()
+        img = (img - img.min()) / (img.max() - img.min() + 1e-8)
 
-# -----------------------------
-# 3. MODEL COMPARISON
-# -----------------------------
-elif option == "Model Comparison":
+        fig, ax = plt.subplots()
+        ax.imshow(img, cmap='inferno')
+        ax.axis('off')
 
-    st.header("📊 Model Comparison")
-
-    data = {
-        "Model": ["MLP", "CNN2D", "MobileNet+GRU", "ResNet50+LSTM", "AE+GAN"],
-        "Accuracy": [78, 85, 88, 91, 95],
-        "F1 Score": [0.75, 0.83, 0.86, 0.90, 0.94],
-        "Training Time": ["Low", "Medium", "Medium", "High", "High"]
-    }
-
-    df = pd.DataFrame(data)
-    st.dataframe(df)
-
-    st.bar_chart(df.set_index("Model")["Accuracy"])
-
-# -----------------------------
-# 4. ABOUT / THEORY
-# -----------------------------
-elif option == "About Model":
-
-    st.header("🧠 Model Explanation")
-
-    st.markdown("""
-### 🔹 Architecture
-- Autoencoder learns compressed features
-- GAN generates realistic fault patterns
-
-### 🔹 Why this model?
-- AE captures latent representation
-- GAN improves data diversity
-- Combined → better fault detection
-
-### 🔹 Stability Techniques
-- Batch Normalization
-- Label Smoothing
-- Noise Injection
-
-### 🔹 Hyperparameters
-- Latent Dim: 64
-- Learning Rate: 1e-4
-- Batch Size: 32
-
-### 🔹 Baselines Compared
-- MLP
-- CNN2D
-- MobileNetV2+GRU
-- ResNet50+LSTM
-
-👉 AE+GAN achieved best performance
-""")
+        st.pyplot(fig)
