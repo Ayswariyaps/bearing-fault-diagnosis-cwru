@@ -66,10 +66,10 @@ def build_generator():
 def load_models():
 
     if not os.path.exists("ae.weights.h5"):
-        gdown.download("YOUR_AE_LINK", "ae.weights.h5")
+        gdown.download("https://drive.google.com/uc?id=1tenPFjaQiNdeDb5qcqsxFJ-dXxTR8NRK", "ae.weights.h5")
 
     if not os.path.exists("gan.weights.h5"):
-        gdown.download("YOUR_GAN_LINK", "gan.weights.h5")
+        gdown.download("https://drive.google.com/uc?id=1cU9cqVOfVMEt_MhpvOm-zAdr_fxbPAeZ", "gan.weights.h5")
 
     ae = build_ae_model()
     gen = build_generator()
